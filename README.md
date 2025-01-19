@@ -1,1 +1,2 @@
 # thymusTSO
+这是一个修改版，取消了利用pvalue来识别可能的spot点，改用直接用Addmodulescore的分数来识别可能的spot点
