@@ -54,7 +54,7 @@ signifTestByZtest <- function(obj, est.params) {
 #' @param call.xgb Call trained XGBoost model or not. Default: FALSE.
 #' @return A list containing Eulerian distance matrix and significant spots.
 
-calcSpotsDist <- function(obj, p.cut = 1e-5, call.xgb = FALSE) {
+calcSpotsDist <- function(obj, cells_pct = 0.05, call.xgb = FALSE) {
     if (call.xgb) {
         xcv <- system.file("data/xcv.RDS", package = "thymusTSO") %>% readRDS(.)
         test.data <- GetAssayData(test.obj) %>%
@@ -67,7 +67,9 @@ calcSpotsDist <- function(obj, p.cut = 1e-5, call.xgb = FALSE) {
             } %>%
             colnames(obj)[.]
     } else {
-        sig.spots <- subset(obj, medulla.padj < p.cut) %>% Cells()
+        # sig.spots <- subset(obj, medulla.padj < p.cut) %>% Cells()
+        sig.spots <- subset(obj, medulla.score1 > quantile(medulla.score1,1-cells_pct)) %>% Cells()
+        print(paste0("Number of significant spots: ", length(sig.spots)))
     }
     image.coord <- GetTissueCoordinates(object = obj@images[[names(obj@images)]])
     elu.dist <- dist(image.coord) %>% as.matrix()
@@ -230,7 +232,7 @@ calcSpot2ModuleDist <- function(obj.st.lst) {
         assig.modules <- apply(elu.sub, 1, which.min) %>% centric.spots[.]
         assig.mindist <- apply(elu.sub, 1, min)
         meta.data <- cbind.data.frame(Centric = assig.modules, Mindist = assig.mindist)
-        obj <- AddMetaData(obj, metadata = meta.data, col.name = c("Assign.Centric", "Distance"))
+        obj <- AddMetaData(obj, metadata = meta.data, col.name = c("Assign.Centric_old", "Distance"))
         return(obj)
     }) -> obj.st.lst
     return(obj.st.lst)
