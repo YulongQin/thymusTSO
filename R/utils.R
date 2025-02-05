@@ -54,7 +54,7 @@ signifTestByZtest <- function(obj, est.params) {
 #' @param call.xgb Call trained XGBoost model or not. Default: FALSE.
 #' @return A list containing Eulerian distance matrix and significant spots.
 
-calcSpotsDist <- function(obj, cells_pct = 0.05, call.xgb = FALSE) {
+calcSpotsDist <- function(obj, cells_pct = 0.05, call.xgb = FALSE, seq_method = "stereo") {
     if (call.xgb) {
         xcv <- system.file("data/xcv.RDS", package = "thymusTSO") %>% readRDS(.)
         test.data <- GetAssayData(test.obj) %>%
@@ -69,9 +69,18 @@ calcSpotsDist <- function(obj, cells_pct = 0.05, call.xgb = FALSE) {
     } else {
         # sig.spots <- subset(obj, medulla.padj < p.cut) %>% Cells()
         sig.spots <- subset(obj, medulla.score1 > quantile(medulla.score1,1-cells_pct)) %>% Cells()
-        print(paste0("Number of significant spots: ", length(sig.spots)))
+        message(paste0("Number of significant spots: ", length(sig.spots)))
     }
     image.coord <- GetTissueCoordinates(object = obj@images[[names(obj@images)]])
+    if(seq_method == "stereo"){
+        x_value <- sort(unique(diff(sort(unique(image.coord[,1])))))[1]
+        y_value <- sort(unique(diff(sort(unique(image.coord[,2])))))[1]
+        if(x_value != 1 | y_value != 1){
+            message(x_value)
+            message(y_value)
+            stop("The distance between spots is not 1. Please check the image coordinates.")
+        }
+    }
     elu.dist <- dist(image.coord) %>% as.matrix()
     return(list(dist = elu.dist, sig.spots = sig.spots))
 }
@@ -83,23 +92,42 @@ calcSpotsDist <- function(obj, cells_pct = 0.05, call.xgb = FALSE) {
 #' @param dist.mat Distance matrix of all spots.
 #' @return A character vector of candidate edge spots.
 
-candEdgeSpots <- function(elu.dist.sig, dist.mat) {
+candEdgeSpots <- function(elu.dist.sig, dist.mat, seq_method = "stereo") {
     nonsig.cells <- setdiff(colnames(elu.dist.sig), rownames(elu.dist.sig))
     adj.sig.spots <- lapply(nonsig.cells, function(idx) {
-        ff <- dist.mat[, idx]
-        knn.names <- ff[order(ff)][2:7] %>% names()
-        empt.spots <- sum(knn.names %in% rownames(elu.dist.sig))
-        flag <- ifelse(empt.spots == 6, 1, 0)
+        ff <- dist.mat[, idx] # 这些步骤无用
+        if(seq_method == "stereo"){
+            knn.names <- ff[order(ff)][2:9] %>% names()
+            empt.spots <- sum(knn.names %in% rownames(elu.dist.sig))
+            flag <- ifelse(empt.spots ==8, 1, 0) 
+        }else{
+            knn.names <- ff[order(ff)][2:7] %>% names()
+            empt.spots <- sum(knn.names %in% rownames(elu.dist.sig))
+            flag <- ifelse(empt.spots ==6, 1, 0)  
+        }
         return(flag)
     }) %>% unlist(.)
 
     sig.spots <- c(rownames(elu.dist.sig), nonsig.cells[adj.sig.spots == 1])
-    nonsig.cells <- setdiff(colnames(elu.dist.sig), sig.spots)
+    nonsig.cells <- setdiff(colnames(elu.dist.sig), sig.spots) # 可能还是那些点
     cand.flags <- apply(elu.dist.sig, 1, function(ff) {
-        knn.names <- ff[order(ff)][2:7] %>% names()
-        empt.spots <- sum(knn.names %in% nonsig.cells)
-        flag <- ifelse(empt.spots > 0, 1, 0)
-        if (empt.spots == 6) flag <- -1
+        if(seq_method == "stereo"){
+            knn.dist <- ff[order(ff)][2:9]
+            knn.names <- knn.dist %>% names()
+            dist1.nms <- knn.names[knn.dist == 1]
+            empt.spots <- sum(knn.names %in% nonsig.cells)
+            if(any(dist1.nms %in% nonsig.cells)){
+                flag <- ifelse(empt.spots > 0, 1, 0) # 不允许允许有空白点
+            }else{
+                flag <- ifelse(empt.spots > 2, 1, 0) # 允许有2个空白点
+            }
+            if (empt.spots == 8) flag <- -1 
+        }else{
+            knn.names <- ff[order(ff)][2:7] %>% names()
+            empt.spots <- sum(knn.names %in% nonsig.cells)
+            flag <- ifelse(empt.spots > 1, 1, 0) # 允许有一个空白点
+            if (empt.spots == 6) flag <- -1
+        }
         return(flag)
     })
     cand.edges <- rownames(elu.dist.sig)[cand.flags == 1]
@@ -113,18 +141,38 @@ candEdgeSpots <- function(elu.dist.sig, dist.mat) {
 #' @param module.size Minimum module size for a confident module, default: 10.
 #' @return A list containing removed and remaining spots.
 
-removeLowConfModules <- function(elu.dist.sig, module.size = 10) {
+removeLowConfModules <- function(elu.dist.sig, module.size = 10, seq_method = "stereo") {
     sig.spots <- rownames(elu.dist.sig)
     apply(elu.dist.sig, 1, function(ff) {
         flag <- rep(0, dim(elu.dist.sig)[2]) %>% `names<-`(colnames(elu.dist.sig))
-        knn.names <- ff[order(ff)][2:7] %>% names()
-        idx.names <- knn.names[which(knn.names %in% sig.spots)]
-        if (length(idx.names) > 0) flag[idx.names] <- 1
+        if(seq_method == "stereo"){ # !!!!: 修改的内容
+            ff <- ff[order(ff)][2:9]  
+            ff1 <- ff[ff == 1] # 距离必须是1的点
+            ff2 <- ff[ff < 2] 
+            knn.names1 <- ff1 %>% names()
+            knn.names2 <- ff2 %>% names()
+            
+            idx.names1 <- knn.names1[which(knn.names1 %in% sig.spots)]
+            idx.names2 <- knn.names2[which(knn.names2 %in% sig.spots)]
+            if (length(idx.names1) > 0 & length(idx.names2)>1){ # 和这个点连接的dist1点必须有1个，且周围点也必须有一个
+                if(length(idx.names1) ==2 & length(idx.names2)==2){ 
+                    flag[idx.names1] <- 0
+                }else{
+                    flag[idx.names1] <- 1
+                }
+            } 
+        }else{
+            knn.names <- ff[order(ff)][2:7] %>% names()
+            idx.names <- knn.names[which(knn.names %in% sig.spots)]
+            if (length(idx.names) > 0) {
+                flag[idx.names] <- 1
+            }
+        }
         return(flag)
     }) %>% t() -> adj.mat
 
     nodes.lst <- list()
-    g1 <- from_adj_matrix(adj.mat[sig.spots, sig.spots])
+    g1 <- from_adj_matrix(adj.mat[sig.spots, sig.spots],mode = "min") # 由于可能会不对称所以必须要min才行
     for (node in sig.spots) {
         idx <- which(g1$nodes_df[, "label"] == node) %>% g1$nodes_df[., "id"]
         con.nodes <- g1 %>% get_all_connected_nodes(node = idx)
@@ -176,26 +224,33 @@ updateModuleCenter <- function(obj, modules, edge.spots) {
     return(modules)
 }
 
-#' @title unpdateSigSpots
+#' @title updateSigSpots
 #'
 #' @description Update significance spots based on Eulerian distance matrix.
 #' @param elu.dist Eulerian distance matrix between spots.
 #' @param sig.spots Current significance spots identified.
 #' @return Updated vector of significance spots.
 
-unpdateSigSpots <- function(elu.dist, sig.spots) {
+updateSigSpots <- function(elu.dist, sig.spots, seq_method = "stereo") {
     flags <- lapply(1:nrow(elu.dist), function(idx) {
         if (rownames(elu.dist)[idx] %in% sig.spots) {
             return(1)
         }
         ff <- elu.dist[idx, ]
-        knn.names <- ff[order(ff)][2:7] %>% names()
-        idx.names <- knn.names[which(knn.names %in% sig.spots)]
-        flag <- ifelse(length(idx.names) >= 4, 1, 0)
+        if(seq_method == "stereo"){
+            knn.names <- ff[order(ff)][2:9] %>% names() #
+            idx.names <- knn.names[which(knn.names %in% sig.spots)]
+            flag <- ifelse(length(idx.names) >= 6, 1, 0)
+        }else{
+            knn.names <- ff[order(ff)][2:7] %>% names() #
+            idx.names <- knn.names[which(knn.names %in% sig.spots)]
+            flag <- ifelse(length(idx.names) >= 4, 1, 0)
+        }
         return(flag)
     }) %>% `names<-`(rownames(elu.dist))
     sig.spots <- flags[flags == 1] %>% names()
 }
+
 
 #' @title removeEdgeSpotsWithOutInternalSpots
 #'
