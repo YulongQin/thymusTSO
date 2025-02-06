@@ -238,11 +238,11 @@ updateSigSpots <- function(elu.dist, sig.spots, seq_method = "stereo") {
         }
         ff <- elu.dist[idx, ]
         if(seq_method == "stereo"){
-            knn.names <- ff[order(ff)][2:9] %>% names() #
+            knn.names <- ff[order(ff)][2:9] %>% names() 
             idx.names <- knn.names[which(knn.names %in% sig.spots)]
-            flag <- ifelse(length(idx.names) >= 6, 1, 0)
+            flag <- ifelse(length(idx.names) >= 5, 1, 0) # 5个会比较合适吧，但是可能会过多
         }else{
-            knn.names <- ff[order(ff)][2:7] %>% names() #
+            knn.names <- ff[order(ff)][2:7] %>% names() 
             idx.names <- knn.names[which(knn.names %in% sig.spots)]
             flag <- ifelse(length(idx.names) >= 4, 1, 0)
         }
