@@ -115,13 +115,17 @@ candEdgeSpots <- function(elu.dist.sig, dist.mat, seq_method = "stereo") {
             knn.dist <- ff[order(ff)][2:9]
             knn.names <- knn.dist %>% names()
             dist1.nms <- knn.names[knn.dist == 1]
-            empt.spots <- sum(knn.names %in% nonsig.cells)
-            if(any(dist1.nms %in% nonsig.cells)){
-                flag <- ifelse(empt.spots > 0, 1, 0) # 不允许允许有空白点
+            if(length(dist1.nms) < 4){ # 周围有空白点
+                flag <- 1
             }else{
-                flag <- ifelse(empt.spots > 2, 1, 0) # 允许有2个空白点
+                empt.spots <- sum(dist1.nms %in% nonsig.cells)
+                if(empt.spots>0){ 
+                    flag <- 1
+                }else{
+                    flag <- 0
+                }
             }
-            if (empt.spots == 8) flag <- -1 
+            # if (empt.spots == 8) flag <- -1 # 无用？
         }else{
             knn.names <- ff[order(ff)][2:7] %>% names()
             empt.spots <- sum(knn.names %in% nonsig.cells)
